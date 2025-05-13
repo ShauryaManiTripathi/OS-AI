@@ -27,8 +27,8 @@ echo "Installing dependencies..."
 pip install -r requirements.txt
 
 # Start the Streamlit app
-echo "Starting PocketFlow Test Suite on port 8501..."
-echo "Make sure your PocketFlow API server is running on port 8080"
+echo "Starting FileAPI Test Suite on port 8501..."
+echo "Make sure your FileAPI API server is running on port 8080"
 streamlit run app.py
 
 # You can access the app at http://localhost:8501

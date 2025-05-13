@@ -6,7 +6,7 @@ import sys
 from modules import session_tests, file_tests, directory_tests, diff_tests, project_tests
 
 st.set_page_config(
-    page_title="PocketFlow API Test Suite",
+    page_title="FileAPI API Test Suite",
     page_icon="🔧",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -19,7 +19,7 @@ if 'current_session_id' not in st.session_state:
     st.session_state.current_session_id = ""
 
 def main():
-    st.title("PocketFlow API Interactive Test Suite")
+    st.title("FileAPI API Interactive Test Suite")
     
     # Sidebar for configuration
     with st.sidebar:

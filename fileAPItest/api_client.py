@@ -3,7 +3,7 @@ import json
 import streamlit as st
 from typing import Dict, List, Any, Optional, Union
 
-class PocketFlowClient:
+class FileAPIClient:
     def __init__(self, base_url: str):
         self.base_url = base_url
     

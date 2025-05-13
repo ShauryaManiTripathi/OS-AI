@@ -24,6 +24,6 @@ func main() {
 	api.SetupRoutes(e, sessionManager)
 	
 	// Start server
-	log.Println("Starting PocketFlow API server on port 8080...")
+	log.Println("Starting file API server on port 8080...")
 	e.Logger.Fatal(e.Start(":8080"))
 }

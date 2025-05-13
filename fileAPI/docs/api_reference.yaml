@@ -1,0 +1,612 @@
+# fileAPI API Reference
+
+system_overview:
+  name: "fileAPI"
+  description: "A comprehensive file operations API with session-based management designed for LLMs to interact with codebases"
+  base_url: "http://localhost:8080"
+  core_concepts:
+    - "Sessions: All operations happen within a session context"
+    - "Working Directory: Each session has a working directory that serves as the root for relative paths"
+    - "File and Directory Operations: Create/read/update/delete files and directories"
+    - "Diff and Patch: Compare files and apply changes"
+    - "Project Analysis: Extract code context, dependencies, and structure for LLMs"
+
+api_categories:
+  session_management:
+    description: "Manage isolated working sessions that track state"
+    dependencies: ["SessionManager service"]
+    apis:
+      create_session:
+        endpoint: "POST /sessions"
+        functionality: "Creates a new isolated session with unique ID and default expiry of 24 hours"
+        dependencies: ["UUID generation"]
+        input: "{}"
+        output: |
+          {
+            "id": "f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+            "createdAt": "2023-06-15T10:30:45Z",
+            "lastActive": "2023-06-15T10:30:45Z",
+            "workingDir": "",
+            "isActive": true,
+            "expiresAt": "2023-06-16T10:30:45Z"
+          }
+        example: "curl -X POST http://localhost:8080/sessions"
+        notes: "Sessions automatically expire after 24 hours of inactivity"
+      
+      get_session:
+        endpoint: "GET /sessions/{sessionId}"
+        functionality: "Retrieves details about an existing session, updates last active time and extends expiry"
+        dependencies: ["Valid session ID", "Session must be active"]
+        input: "Path parameter: sessionId"
+        output: |
+          {
+            "id": "f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+            "createdAt": "2023-06-15T10:30:45Z",
+            "lastActive": "2023-06-15T11:45:12Z",
+            "workingDir": "/path/to/dir",
+            "isActive": true,
+            "expiresAt": "2023-06-16T11:45:12Z"
+          }
+        example: "curl -X GET http://localhost:8080/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e"
+      
+      list_sessions:
+        endpoint: "GET /sessions"
+        functionality: "Lists all active sessions in the system"
+        dependencies: ["SessionManager service"]
+        input: "{}"
+        output: |
+          {
+            "sessions": [
+              {
+                "id": "f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+                "createdAt": "2023-06-15T10:30:45Z",
+                "lastActive": "2023-06-15T11:45:12Z",
+                "workingDir": "/path/to/dir",
+                "isActive": true,
+                "expiresAt": "2023-06-16T11:45:12Z"  
+              },
+              {
+                "id": "a5f0dcd9-b311-4c52-b979-c7ada3202b19",
+                "createdAt": "2023-06-15T14:22:33Z",
+                "lastActive": "2023-06-15T14:22:33Z",
+                "workingDir": "",
+                "isActive": true,
+                "expiresAt": "2023-06-16T14:22:33Z"
+              }
+            ],
+            "count": 2
+          }
+        example: "curl -X GET http://localhost:8080/sessions"
+      
+      delete_session:
+        endpoint: "DELETE /sessions/{sessionId}"
+        functionality: "Deletes a session by ID, cleaning up its resources"
+        dependencies: ["Valid session ID"]
+        input: "Path parameter: sessionId"
+        output: "204 No Content on success"
+        example: "curl -X DELETE http://localhost:8080/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e"
+      
+      set_working_directory:
+        endpoint: "PUT /sessions/{sessionId}/cwd"
+        functionality: "Sets the working directory for a session - all relative paths will be based on this directory"
+        dependencies: ["Valid session ID", "Directory must exist on server filesystem"]
+        input: |
+          {
+            "workingDirectory": "/path/to/project"
+          }
+        output: |
+          {
+            "id": "f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+            "createdAt": "2023-06-15T10:30:45Z", 
+            "lastActive": "2023-06-15T11:47:32Z",
+            "workingDir": "/path/to/project",
+            "isActive": true,
+            "expiresAt": "2023-06-16T11:47:32Z"
+          }
+        example: |
+          curl -X PUT http://localhost:8080/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/cwd \
+            -H "Content-Type: application/json" \
+            -d '{"workingDirectory": "/path/to/project"}'
+        notes: "This is a critical operation - must be called before file/directory operations"
+  
+  file_operations:
+    description: "Create, read, update and delete files, with additional batch operations and metadata retrieval"
+    dependencies: ["SessionManager service", "Active session", "Working directory set"]
+    apis:
+      list_files:
+        endpoint: "GET /sessions/{sessionId}/files?path=path/to/dir"
+        functionality: "Lists all files (not directories) in the specified directory"
+        dependencies: ["Valid session with working directory", "Path must exist"]
+        input: "Query parameter: path (optional, defaults to '.')"
+        output: |
+          {
+            "path": "path/to/dir",
+            "files": ["file1.txt", "file2.go", "file3.md"]
+          }
+        example: "curl -X GET http://localhost:8080/sessions/{sessionId}/files?path=src"
+      
+      list_files_with_metadata:
+        endpoint: "GET /sessions/{sessionId}/files-metadata?path=path/to/dir"
+        functionality: "Lists files with detailed metadata including size, modification time, permissions"
+        dependencies: ["Valid session with working directory", "Path must exist"]
+        input: "Query parameter: path (optional, defaults to '.')"
+        output: |
+          {
+            "path": "path/to/dir",
+            "files": [
+              {
+                "name": "file1.txt",
+                "path": "path/to/dir/file1.txt",
+                "size": 1024,
+                "modTime": "2023-06-15T12:30:45Z",
+                "isDir": false,
+                "contentType": "text/plain",
+                "permissions": "-rw-r--r--"
+              },
+              {
+                "name": "file2.go",
+                "path": "path/to/dir/file2.go",
+                "size": 2048,
+                "modTime": "2023-06-14T10:15:22Z",
+                "isDir": false,
+                "contentType": "text/x-go",
+                "permissions": "-rw-r--r--"
+              }
+            ]
+          }
+        example: "curl -X GET http://localhost:8080/sessions/{sessionId}/files-metadata?path=src"
+      
+      get_file:
+        endpoint: "GET /sessions/{sessionId}/files/{filePath}"
+        functionality: "Reads and returns the content of a file"
+        dependencies: ["Valid session with working directory", "File must exist"]
+        input: "Path parameter: filePath (relative to working directory)"
+        output: |
+          {
+            "path": "path/to/file.txt",
+            "content": "Content of the file..."
+          }
+        example: "curl -X GET http://localhost:8080/sessions/{sessionId}/files/src/main.go"
+      
+      get_file_metadata:
+        endpoint: "GET /sessions/{sessionId}/file-metadata/{filePath}"
+        functionality: "Retrieves metadata for a specific file"
+        dependencies: ["Valid session with working directory", "File must exist"]
+        input: "Path parameter: filePath (relative to working directory)"
+        output: |
+          {
+            "name": "main.go",
+            "path": "src/main.go",
+            "size": 2048,
+            "modTime": "2023-06-14T10:15:22Z",
+            "isDir": false,
+            "contentType": "text/x-go",
+            "permissions": "-rw-r--r--"
+          }
+        example: "curl -X GET http://localhost:8080/sessions/{sessionId}/file-metadata/src/main.go"
+      
+      create_file:
+        endpoint: "POST /sessions/{sessionId}/files/{filePath}"
+        functionality: "Creates a new file with the specified content, creates parent directories if needed"
+        dependencies: ["Valid session with working directory", "Parent directory must exist or be creatable"]
+        input: |
+          {
+            "content": "Content to write to the file"
+          }
+        output: |
+          {
+            "message": "File created successfully",
+            "path": "path/to/file.txt"
+          }
+        example: |
+          curl -X POST http://localhost:8080/sessions/{sessionId}/files/src/hello.go \
+            -H "Content-Type: application/json" \
+            -d '{"content": "package main\n\nfunc main() {\n\tprintln(\"Hello, World!\")\n}"}'
+      
+      update_file:
+        endpoint: "PUT /sessions/{sessionId}/files/{filePath}"
+        functionality: "Updates an existing file with new content"
+        dependencies: ["Valid session with working directory", "File must exist"]
+        input: |
+          {
+            "content": "New content for the file"
+          }
+        output: |
+          {
+            "message": "File updated successfully",
+            "path": "path/to/file.txt" 
+          }
+        example: |
+          curl -X PUT http://localhost:8080/sessions/{sessionId}/files/src/hello.go \
+            -H "Content-Type: application/json" \
+            -d '{"content": "package main\n\nfunc main() {\n\tprintln(\"Hello, Updated!\")\n}"}'
+      
+      delete_file:
+        endpoint: "DELETE /sessions/{sessionId}/files/{filePath}"
+        functionality: "Deletes an existing file"
+        dependencies: ["Valid session with working directory", "File must exist"]
+        input: "Path parameter: filePath (relative to working directory)"
+        output: "204 No Content on success"
+        example: "curl -X DELETE http://localhost:8080/sessions/{sessionId}/files/src/hello.go"
+      
+      batch_read_files:
+        endpoint: "POST /sessions/{sessionId}/batch-read"
+        functionality: "Reads multiple files in a single request"
+        dependencies: ["Valid session with working directory", "Files should exist"]
+        input: |
+          {
+            "files": ["path/to/file1.txt", "path/to/file2.go"]
+          }
+        output: |
+          {
+            "results": [
+              {
+                "path": "path/to/file1.txt",
+                "success": true,
+                "result": "Content of file1.txt..."
+              },
+              {
+                "path": "path/to/file2.go",
+                "success": true,
+                "result": "Content of file2.go..."
+              }
+            ]
+          }
+        example: |
+          curl -X POST http://localhost:8080/sessions/{sessionId}/batch-read \
+            -H "Content-Type: application/json" \
+            -d '{"files": ["src/main.go", "README.md"]}'
+      
+      search_content:
+        endpoint: "POST /sessions/{sessionId}/search"
+        functionality: "Searches for pattern in files within a directory, with optional recursion"
+        dependencies: ["Valid session with working directory"]
+        input: |
+          {
+            "pattern": "func main",
+            "path": "src",
+            "recursive": true
+          }
+        output: |
+          {
+            "pattern": "func main",
+            "path": "src",
+            "recursive": true,
+            "matchedFiles": 2,
+            "results": {
+              "main.go": ["func main() {", "// This is in func main"],
+              "utils/test.go": ["func main_helper() {"]
+            }
+          }
+        example: |
+          curl -X POST http://localhost:8080/sessions/{sessionId}/search \
+            -H "Content-Type: application/json" \
+            -d '{"pattern": "func main", "path": "src", "recursive": true}'
+      
+      extract_content:
+        endpoint: "POST /sessions/{sessionId}/extract"
+        functionality: "Utility for LLMs to extract specific file contents in bulk"
+        dependencies: ["Valid session with working directory"]
+        input: |
+          {
+            "files": ["src/main.go", "README.md", "config.json"]
+          }
+        output: |
+          {
+            "src/main.go": "package main\n\nfunc main() {...}",
+            "README.md": "# Project\nThis is a description...",
+            "config.json": "ERROR: File not found"
+          }
+        example: |
+          curl -X POST http://localhost:8080/sessions/{sessionId}/extract \
+            -H "Content-Type: application/json" \
+            -d '{"files": ["src/main.go", "README.md", "config.json"]}'
+  
+  directory_operations:
+    description: "Create, list, and delete directories, with support for tree structure and size calculation"
+    dependencies: ["SessionManager service", "Active session", "Working directory set"]
+    apis:
+      list_directories: 
+        endpoint: "GET /sessions/{sessionId}/directories?path=path/to/dir"
+        functionality: "Lists all directories (not files) in the specified path"
+        dependencies: ["Valid session with working directory", "Path must exist"]
+        input: "Query parameter: path (optional, defaults to '.')"
+        output: |
+          {
+            "path": "path/to/dir",
+            "directories": ["dir1", "dir2", "dir3"]
+          }
+        example: "curl -X GET http://localhost:8080/sessions/{sessionId}/directories?path=src"
+      
+      get_directory_tree:
+        endpoint: "GET /sessions/{sessionId}/directory-tree?path=path&depth=3"
+        functionality: "Returns a nested tree structure of directories and files"
+        dependencies: ["Valid session with working directory", "Path must exist"]
+        input: "Query parameters: path (optional, defaults to '.'), depth (optional, defaults to 2)"
+        output: |
+          {
+            "path": "src",
+            "tree": [
+              {
+                "name": "controllers",
+                "path": "src/controllers",
+                "isDir": true,
+                "children": [
+                  {
+                    "name": "user.go",
+                    "path": "src/controllers/user.go",
+                    "size": 1024,
+                    "isDir": false
+                  }
+                ]
+              },
+              {
+                "name": "main.go",
+                "path": "src/main.go",
+                "size": 2048,
+                "isDir": false
+              }
+            ]
+          }
+        example: "curl -X GET http://localhost:8080/sessions/{sessionId}/directory-tree?path=src&depth=3"
+      
+      create_directory:
+        endpoint: "POST /sessions/{sessionId}/directories/{dirPath}"
+        functionality: "Creates a new directory and any necessary parent directories"
+        dependencies: ["Valid session with working directory"]
+        input: "Path parameter: dirPath (relative to working directory)"
+        output: |
+          {
+            "message": "Directory created successfully",
+            "path": "path/to/dir"
+          }
+        example: "curl -X POST http://localhost:8080/sessions/{sessionId}/directories/src/models"
+      
+      delete_directory:
+        endpoint: "DELETE /sessions/{sessionId}/directories/{dirPath}"
+        functionality: "Recursively deletes a directory and all its contents"
+        dependencies: ["Valid session with working directory", "Directory must exist"]
+        input: "Path parameter: dirPath (relative to working directory)"
+        output: "204 No Content on success"
+        example: "curl -X DELETE http://localhost:8080/sessions/{sessionId}/directories/src/models"
+      
+      get_directory_size:
+        endpoint: "GET /sessions/{sessionId}/directory-size/{dirPath}"
+        functionality: "Calculates the total size of a directory including all its contents"
+        dependencies: ["Valid session with working directory", "Directory must exist"]
+        input: "Path parameter: dirPath (relative to working directory)"
+        output: |
+          {
+            "path": "src",
+            "size": 5242880,
+            "sizeFormatted": "5.00 MB"
+          }
+        example: "curl -X GET http://localhost:8080/sessions/{sessionId}/directory-size/src"
+  
+  diff_and_patch:
+    description: "Generate diffs between files or contents and apply patches"
+    dependencies: ["SessionManager service", "FileService", "DiffMatchPatch library"]
+    apis:
+      generate_diff:
+        endpoint: "POST /sessions/{sessionId}/diff"
+        functionality: "Generates diff between two files or text contents"
+        dependencies: ["Valid session with working directory", "If paths provided, files must exist"]
+        input: |
+          {
+            "originalPath": "path/to/original.go",
+            "modifiedPath": "path/to/modified.go"
+          }
+          # OR
+          {
+            "original": "Original content",
+            "modified": "Modified content"
+          }
+        output: |
+          {
+            "patches": "@@ -1,4 +1,4 @@\n Original\n-content\n+modified content\n"
+          }
+        example: |
+          curl -X POST http://localhost:8080/sessions/{sessionId}/diff \
+            -H "Content-Type: application/json" \
+            -d '{"original": "Original content", "modified": "Modified content"}'
+      
+      apply_patch:
+        endpoint: "POST /sessions/{sessionId}/patch"
+        functionality: "Applies patches to a file or content"
+        dependencies: ["Valid session with working directory", "If path provided, file must exist"]
+        input: |
+          {
+            "filePath": "path/to/file.go", # Optional
+            "original": "Original content",
+            "patches": "@@ -1,4 +1,4 @@\n Original\n-content\n+modified content\n"
+          }
+        output: |
+          {
+            "result": "Original\nmodified content\n",
+            "path": "path/to/file.go" # If filePath was provided
+          }
+        example: |
+          curl -X POST http://localhost:8080/sessions/{sessionId}/patch \
+            -H "Content-Type: application/json" \
+            -d '{
+              "filePath": "src/main.go",
+              "original": "package main\n\nfunc main() {\n\tprintln(\"Hello\")\n}",
+              "patches": "@@ -3,3 +3,3 @@\n func main() {\n-\tprintln(\"Hello\")\n+\tprintln(\"Hello, World!\")\n }"
+            }'
+  
+  project_operations:
+    description: "Operations for analyzing code projects, extracting context and dependencies for LLMs"
+    dependencies: ["SessionManager service", "FileService", "DirectoryService"]
+    apis:
+      get_project_summary:
+        endpoint: "GET /sessions/{sessionId}/project"
+        functionality: "Generates a summary of the project including file counts, types, key files"
+        dependencies: ["Valid session with working directory"]
+        input: "Path parameter: sessionId"
+        output: |
+          {
+            "name": "myproject",
+            "rootPath": "/path/to/myproject",
+            "fileCount": 42,
+            "dirCount": 7,
+            "totalSize": 245760,
+            "fileTypes": {
+              ".go": 25,
+              ".md": 3,
+              ".json": 5,
+              "": 9
+            },
+            "keyFiles": ["main.go", "go.mod", "README.md"],
+            "recentFiles": [
+              {
+                "name": "main.go",
+                "path": "main.go",
+                "size": 2048,
+                "modTime": "2023-06-14T10:15:22Z",
+                "isDir": false,
+                "contentType": "text/x-go",
+                "permissions": "-rw-r--r--"
+              }
+            ]
+          }
+        example: "curl -X GET http://localhost:8080/sessions/{sessionId}/project"
+      
+      extract_code_context:
+        endpoint: "GET /sessions/{sessionId}/project/context?maxFiles=10"
+        functionality: "Extracts code context for LLMs including file content, dependencies, and language details"
+        dependencies: ["Valid session with working directory"]
+        input: "Query parameter: maxFiles (optional, defaults to 10)"
+        output: |
+          {
+            "projectName": "myproject",
+            "mainFiles": {
+              "main.go": {
+                "content": "package main\n\nimport (\n\t\"fmt\"\n)\n\nfunc main() {\n\tfmt.Println(\"Hello\")\n}",
+                "dependencies": ["fmt"],
+                "size": 82,
+                "modTime": "2023-06-14T10:15:22Z",
+                "language": "Go"
+              },
+              "api/server.go": {
+                "content": "package api\n\nimport (\n\t\"net/http\"\n)\n\nfunc StartServer() {\n\t// Code...\n}",
+                "dependencies": ["net/http"],
+                "size": 96,
+                "modTime": "2023-06-13T17:30:10Z",
+                "language": "Go"
+              }
+            },
+            "projectDependencies": [
+              "github.com/labstack/echo/v4 v4.13.3",
+              "github.com/google/uuid v1.6.0"
+            ],
+            "fileStructure": {
+              "main.go": {
+                "size": 82,
+                "modTime": "2023-06-14T10:15:22Z"
+              },
+              "api": {
+                "server.go": {
+                  "size": 96,
+                  "modTime": "2023-06-13T17:30:10Z"
+                }
+              },
+              "go.mod": {
+                "size": 245,
+                "modTime": "2023-06-10T09:22:33Z"
+              }
+            }
+          }
+        example: "curl -X GET http://localhost:8080/sessions/{sessionId}/project/context?maxFiles=5"
+        notes: |
+          - Extracts dependencies from many languages:
+            Go, JavaScript, TypeScript, Python, Java, Ruby, PHP, Rust, C#, C/C++
+          - Project-level dependency files supported:
+            go.mod, package.json, requirements.txt, Gemfile, composer.json,
+            Cargo.toml, pom.xml, build.gradle
+      
+      export_file_structure:
+        endpoint: "GET /sessions/{sessionId}/project/structure?path=path&depth=3"
+        functionality: "Exports file structure as a nested JSON object"
+        dependencies: ["Valid session with working directory", "Path must exist"]
+        input: "Query parameters: path (optional, defaults to '.'), depth (optional, defaults to 3)"
+        output: |
+          {
+            "path": "src",
+            "depth": 3,
+            "structure": "{\n  \"main.go\": {\n    \"size\": 82,\n    \"modTime\": \"2023-06-14T10:15:22Z\"\n  },\n  \"api\": {\n    \"server.go\": {\n      \"size\": 96,\n      \"modTime\": \"2023-06-13T17:30:10Z\"\n    }\n  }\n}"
+          }
+        example: "curl -X GET http://localhost:8080/sessions/{sessionId}/project/structure?path=src&depth=3"
+      
+      batch_create_files:
+        endpoint: "POST /sessions/{sessionId}/project/batch-create"
+        functionality: "Creates multiple files at once"
+        dependencies: ["Valid session with working directory"]
+        input: |
+          {
+            "files": {
+              "src/main.go": "package main\n\nfunc main() {\n\tprintln(\"Hello\")\n}",
+              "README.md": "# Project\nThis is a description...",
+              "config.json": "{\n  \"version\": \"1.0.0\"\n}"
+            }
+          }
+        output: |
+          {
+            "results": [
+              {
+                "path": "src/main.go",
+                "success": true
+              },
+              {
+                "path": "README.md",
+                "success": true
+              },
+              {
+                "path": "config.json",
+                "success": true
+              }
+            ]
+          }
+        example: |
+          curl -X POST http://localhost:8080/sessions/{sessionId}/project/batch-create \
+            -H "Content-Type: application/json" \
+            -d '{
+              "files": {
+                "src/main.go": "package main\n\nfunc main() {\n\tprintln(\"Hello\")\n}",
+                "README.md": "# Project\nThis is a description...",
+                "config.json": "{\n  \"version\": \"1.0.0\"\n}"
+              }
+            }'
+
+usage_workflow:
+  description: "Typical workflow for using the API"
+  steps:
+    - "Create a session (POST /sessions)"
+    - "Set working directory (PUT /sessions/{id}/cwd)"
+    - "Perform file/directory operations"
+    - "Use project analysis endpoints for understanding the codebase"
+    - "Batch create or update files as needed"
+    - "Generate diffs between original and modified files"
+  
+  llm_integration:
+    recommended_flows:
+      code_understanding: [
+        "Create session",
+        "Set working directory to project root",
+        "Get project summary",
+        "Extract code context with key files",
+        "Explore directory tree structure"
+      ]
+      
+      code_modification: [
+        "Create session",
+        "Set working directory",
+        "Read existing file(s)",
+        "Generate modified content",
+        "Either update files directly or create diffs for human review"
+      ]
+      
+      file_operations: [
+        "Create session", 
+        "Set working directory",
+        "Batch create necessary files with appropriate content"
+      ]

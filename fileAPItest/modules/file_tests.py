@@ -1,11 +1,11 @@
 import streamlit as st
-from api_client import PocketFlowClient, display_response
+from api_client import FileAPIClient, display_response
 
 def render(api_url: str, session_id: str):
     """Render file testing UI"""
     st.header("File Operations")
     
-    client = PocketFlowClient(api_url)
+    client = FileAPIClient(api_url)
     
     if not session_id:
         st.warning("Please create or select a session from the Sessions tab first")

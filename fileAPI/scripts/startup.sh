@@ -18,7 +18,7 @@ echo "Building project..."
 go build -o fileAPI main.go
 
 # Start the server
-echo "Starting PocketFlow API server on port 8080..."
+echo "Starting fileAPI API server on port 8080..."
 ./fileAPI
 
 # You can also use this to start without building:

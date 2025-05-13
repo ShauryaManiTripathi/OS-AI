@@ -1,11 +1,11 @@
 import streamlit as st
-from api_client import PocketFlowClient, display_response
+from api_client import FileAPIClient, display_response
 
 def render(api_url: str):
     """Render session testing UI"""
     st.header("Session Management")
     
-    client = PocketFlowClient(api_url)
+    client = FileAPIClient(api_url)
     
     # Create two columns for better layout
     col1, col2 = st.columns(2)
