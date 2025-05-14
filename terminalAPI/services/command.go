@@ -5,10 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
+	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -55,16 +54,10 @@ func (cs *CommandService) ExecuteCommand(sessionID string, request *CommandReque
 		return nil, errors.New("working directory not set for session")
 	}
 	
-	// Split the command into parts
-	args := parseCommand(request.Command)
-	if len(args) == 0 {
-		return nil, errors.New("empty command")
-	}
-	
 	// Record in history
 	cs.historyService.AddToHistory(sessionID, request.Command)
 	
-	// Create command
+	// Create command context
 	ctx := context.Background()
 	var cancel context.CancelFunc
 	
@@ -73,11 +66,16 @@ func (cs *CommandService) ExecuteCommand(sessionID string, request *CommandReque
 		defer cancel()
 	}
 	
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = session.WorkingDir
+	// Determine which shell to use based on session environment
+	shellPath := "/bin/bash"  // Default shell
+	if shell, exists := session.EnvVars["SHELL"]; exists && shell != "" {
+		shellPath = shell
+	}
 	
-	// Set environment variables
-	env := []string{}
+	// Start with system environment
+	env := os.Environ()
+	
+	// Add session environment variables
 	for k, v := range session.EnvVars {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
@@ -87,9 +85,10 @@ func (cs *CommandService) ExecuteCommand(sessionID string, request *CommandReque
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 	
-	if len(env) > 0 {
-		cmd.Env = env
-	}
+	// Create command
+	cmd := exec.CommandContext(ctx, shellPath, "-c", request.Command)
+	cmd.Dir = session.WorkingDir
+	cmd.Env = env
 	
 	// Capture stdout and stderr
 	var stdout, stderr bytes.Buffer

@@ -1,5 +1,6 @@
 import streamlit as st
 from api_client import TerminalAPIClient, display_response
+import time
 
 def render(api_url: str, session_id: str):
     """Render environment variables testing UI"""
@@ -60,9 +61,16 @@ def render(api_url: str, session_id: str):
             if st.button("Set Variable"):
                 if key:
                     with st.spinner(f"Setting {key}..."):
-                        response = client.set_env_var(session_id, key, value)
-                    # Avoid nested expanders
-                    display_response(response, use_expander=False)
+                        # Set a timeout to prevent UI blocking if there's an issue
+                        try:
+                            response = client.set_env_var(session_id, key, value)
+                            # Avoid nested expanders
+                            display_response(response, use_expander=False)
+                            # Show a success notification
+                            if response["status_code"] >= 200 and response["status_code"] < 300:
+                                st.success(f"Successfully set {key}={value}")
+                        except Exception as e:
+                            st.error(f"Request failed or timed out: {str(e)}")
                 else:
                     st.error("Please enter a variable name")
         
@@ -122,20 +130,16 @@ def render(api_url: str, session_id: str):
                 if selected_key:
                     st.text(f"Current value: {env_vars[selected_key]}")
                     
+                    # Remove confirmation and directly provide unset button
                     if st.button("Unset Variable"):
-                        confirm = st.checkbox("Confirm unset?")
-                        if confirm:
-                            with st.spinner(f"Unsetting {selected_key}..."):
-                                response = client.unset_env_var(session_id, selected_key)
-                            # No nested expander
-                            display_response(response, use_expander=False)
-                            
-                            # Rerun to update the list
-                            if response["status_code"] == 200:
-                                st.success(f"Unset {selected_key}")
-                                st.rerun()
-                        else:
-                            st.warning("Please confirm before unsetting")
+                        with st.spinner(f"Unsetting {selected_key}..."):
+                            response = client.unset_env_var(session_id, selected_key)
+                        
+                        # Display response
+                        display_response(response, use_expander=False)
+                        
+                        # Refresh the page to update the list
+                        st.rerun()
             else:
                 st.info("No environment variables to unset")
         else:

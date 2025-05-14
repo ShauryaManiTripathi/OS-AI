@@ -14,14 +14,15 @@ class TerminalAPIClient:
         url = f"{self.base_url}{endpoint}"
         
         try:
+            # Add timeout to all requests to prevent hanging
             if method.lower() == "get":
-                response = requests.get(url, params=params)
+                response = requests.get(url, params=params, timeout=10)
             elif method.lower() == "post":
-                response = requests.post(url, json=data, params=params)
+                response = requests.post(url, json=data, params=params, timeout=10)
             elif method.lower() == "put":
-                response = requests.put(url, json=data)
+                response = requests.put(url, json=data, timeout=10)
             elif method.lower() == "delete":
-                response = requests.delete(url)
+                response = requests.delete(url, timeout=10)
             else:
                 return {"error": "Invalid HTTP method"}
             
@@ -37,6 +38,16 @@ class TerminalAPIClient:
                     "data": {"text": response.text}
                 }
                 
+        except requests.exceptions.Timeout:
+            return {
+                "status_code": 504,
+                "data": {"error": "Request timed out. The server may be busy or unresponsive."}
+            }
+        except requests.exceptions.ConnectionError:
+            return {
+                "status_code": 503,
+                "data": {"error": "Connection failed. Please check if the server is running."}
+            }
         except requests.exceptions.RequestException as e:
             return {
                 "status_code": 500,
@@ -169,6 +180,10 @@ class TerminalAPIClient:
     def get_available_shells(self) -> Dict:
         """Get available shells"""
         return self._make_request("get", "/system/shells")
+
+    def get_session_shells(self, session_id: str) -> Dict:
+        """Get available shells for a specific session"""
+        return self._make_request("get", f"/sessions/{session_id}/system/shells")
 
 def display_response(response: Dict, use_expander: bool = True) -> None:
     """Utility function to display API responses in Streamlit"""

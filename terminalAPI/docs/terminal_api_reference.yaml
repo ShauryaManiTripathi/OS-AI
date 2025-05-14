@@ -1,0 +1,734 @@
+# terminalAPI API Reference
+
+system_overview:
+  name: "terminalAPI"
+  description: "A comprehensive remote command execution API with session-based management designed for executing shell commands and managing interactive processes"
+  base_url: "http://localhost:8081"
+  core_concepts:
+    - "Sessions: All operations happen within a session context"
+    - "Working Directory: Each session has a working directory that serves as the root for command execution"
+    - "Command Execution: Run commands with input/output capture and custom environment variables"
+    - "Process Management: Start and interact with long-running processes"
+    - "Environment Variables: Set and manage environment variables for each session"
+    - "Command History: Track and search command history for each session"
+
+api_categories:
+  session_management:
+    description: "Manage isolated terminal sessions that track state, environment variables, and working directories"
+    dependencies: ["SessionManager service"]
+    apis:
+      create_session:
+        endpoint: "POST /sessions"
+        functionality: "Creates a new isolated terminal session with unique ID and default expiry of 24 hours"
+        dependencies: ["UUID generation"]
+        input: "{}"
+        output: |
+          {
+            "id": "f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+            "createdAt": "2023-06-15T10:30:45Z",
+            "lastActive": "2023-06-15T10:30:45Z",
+            "workingDir": "",
+            "isActive": true,
+            "expiresAt": "2023-06-16T10:30:45Z",
+            "envVars": {
+              "SHELL": "/bin/bash"
+            }
+          }
+        example: "curl -X POST http://localhost:8081/sessions"
+        notes: "Sessions automatically expire after 24 hours of inactivity. The default shell is determined by the system environment."
+      
+      get_session:
+        endpoint: "GET /sessions/{sessionId}"
+        functionality: "Retrieves details about an existing terminal session, updates last active time and extends expiry"
+        dependencies: ["Valid session ID", "Session must be active"]
+        input: "Path parameter: sessionId"
+        output: |
+          {
+            "id": "f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+            "createdAt": "2023-06-15T10:30:45Z",
+            "lastActive": "2023-06-15T11:45:12Z",
+            "workingDir": "/path/to/dir",
+            "isActive": true,
+            "expiresAt": "2023-06-16T11:45:12Z",
+            "envVars": {
+              "SHELL": "/bin/bash",
+              "NODE_ENV": "development"
+            }
+          }
+        example: "curl -X GET http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e"
+      
+      list_sessions:
+        endpoint: "GET /sessions"
+        functionality: "Lists all active terminal sessions in the system"
+        dependencies: ["SessionManager service"]
+        input: "{}"
+        output: |
+          {
+            "sessions": [
+              {
+                "id": "f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+                "createdAt": "2023-06-15T10:30:45Z",
+                "lastActive": "2023-06-15T11:45:12Z",
+                "workingDir": "/path/to/dir",
+                "isActive": true,
+                "expiresAt": "2023-06-16T11:45:12Z",
+                "envVars": {
+                  "SHELL": "/bin/bash",
+                  "NODE_ENV": "development"
+                }
+              },
+              {
+                "id": "a5f0dcd9-b311-4c52-b979-c7ada3202b19",
+                "createdAt": "2023-06-15T14:22:33Z",
+                "lastActive": "2023-06-15T14:22:33Z",
+                "workingDir": "",
+                "isActive": true,
+                "expiresAt": "2023-06-16T14:22:33Z",
+                "envVars": {
+                  "SHELL": "/bin/bash"
+                }
+              }
+            ],
+            "count": 2
+          }
+        example: "curl -X GET http://localhost:8081/sessions"
+      
+      delete_session:
+        endpoint: "DELETE /sessions/{sessionId}"
+        functionality: "Deletes a session by ID, cleaning up its resources and terminating all running processes"
+        dependencies: ["Valid session ID"]
+        input: "Path parameter: sessionId"
+        output: "204 No Content on success"
+        example: "curl -X DELETE http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e"
+        notes: "All running processes within the session will be killed when the session is deleted"
+      
+      set_working_directory:
+        endpoint: "PUT /sessions/{sessionId}/cwd"
+        functionality: "Sets the working directory for a session - all commands will be executed in this directory"
+        dependencies: ["Valid session ID", "Directory must exist on server filesystem"]
+        input: |
+          {
+            "workingDirectory": "/path/to/project"
+          }
+        output: |
+          {
+            "id": "f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+            "createdAt": "2023-06-15T10:30:45Z", 
+            "lastActive": "2023-06-15T11:47:32Z",
+            "workingDir": "/path/to/project",
+            "isActive": true,
+            "expiresAt": "2023-06-16T11:47:32Z",
+            "envVars": {
+              "SHELL": "/bin/bash"
+            }
+          }
+        example: |
+          curl -X PUT http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/cwd \
+            -H "Content-Type: application/json" \
+            -d '{"workingDirectory": "/path/to/project"}'
+        notes: "This is a critical operation - must be called before executing commands. The working directory must exist on the server."
+  
+  command_execution:
+    description: "Execute shell commands with input/output capture and custom environment variables"
+    dependencies: ["SessionManager service", "CommandService", "Active session", "Working directory set"]
+    apis:
+      execute_command:
+        endpoint: "POST /sessions/{sessionId}/commands"
+        functionality: "Executes a shell command in the session's context and returns the output"
+        dependencies: ["Valid session with working directory"]
+        input: |
+          {
+            "command": "ls -la",
+            "timeout": 10,
+            "environment": {
+              "DEBUG": "true",
+              "NODE_ENV": "development"
+            }
+          }
+        output: |
+          {
+            "exitCode": 0,
+            "stdout": "total 32\ndrwxr-xr-x  6 user group  192 Jun 15 10:30 .\ndrwxr-xr-x 19 user group  608 Jun 14 08:15 ..\n-rw-r--r--  1 user group 1024 Jun 15 09:22 file.txt\n-rw-r--r--  1 user group 2560 Jun 14 12:33 main.go\n",
+            "stderr": "",
+            "executionTime": 0.023,
+            "command": "ls -la"
+          }
+        example: |
+          curl -X POST http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/commands \
+            -H "Content-Type: application/json" \
+            -d '{
+              "command": "ls -la",
+              "timeout": 10,
+              "environment": {
+                "DEBUG": "true"
+              }
+            }'
+        notes: |
+          - command: (Required) The shell command to execute
+          - timeout: (Optional) Maximum execution time in seconds
+          - environment: (Optional) Additional environment variables for this command
+      
+      execute_batch_commands:
+        endpoint: "POST /sessions/{sessionId}/commands/batch"
+        functionality: "Executes multiple commands in sequence, with optional continue-on-error behavior"
+        dependencies: ["Valid session with working directory"]
+        input: |
+          {
+            "commands": [
+              "mkdir -p test_folder",
+              "cd test_folder",
+              "echo 'Hello World' > test.txt",
+              "cat test.txt"
+            ],
+            "continueOnError": true,
+            "timeout": 5,
+            "environment": {
+              "DEBUG": "true"
+            }
+          }
+        output: |
+          {
+            "results": [
+              {
+                "exitCode": 0,
+                "stdout": "",
+                "stderr": "",
+                "executionTime": 0.011,
+                "command": "mkdir -p test_folder"
+              },
+              {
+                "exitCode": 0,
+                "stdout": "",
+                "stderr": "",
+                "executionTime": 0.005,
+                "command": "cd test_folder"
+              },
+              {
+                "exitCode": 0,
+                "stdout": "",
+                "stderr": "",
+                "executionTime": 0.008,
+                "command": "echo 'Hello World' > test.txt"
+              },
+              {
+                "exitCode": 0,
+                "stdout": "Hello World\n",
+                "stderr": "",
+                "executionTime": 0.007,
+                "command": "cat test.txt"
+              }
+            ],
+            "count": 4
+          }
+        example: |
+          curl -X POST http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/commands/batch \
+            -H "Content-Type: application/json" \
+            -d '{
+              "commands": [
+                "mkdir -p test_folder",
+                "cd test_folder",
+                "echo \"Hello World\" > test.txt",
+                "cat test.txt"
+              ],
+              "continueOnError": true,
+              "timeout": 5
+            }'
+        notes: |
+          - commands: (Required) Array of shell commands to execute
+          - continueOnError: (Optional) If true, continue executing commands even if one fails
+          - timeout: (Optional) Maximum execution time per command in seconds
+          - environment: (Optional) Additional environment variables for all commands
+  
+  process_management:
+    description: "Start and interact with long-running processes, such as interactive shells or server applications"
+    dependencies: ["SessionManager service", "ProcessService", "Active session", "Working directory set"]
+    apis:
+      start_process:
+        endpoint: "POST /sessions/{sessionId}/processes"
+        functionality: "Starts a new long-running process in the background and returns its ID"
+        dependencies: ["Valid session with working directory"]
+        input: |
+          {
+            "command": "python3 -i",
+            "timeout": 300,
+            "environment": {
+              "PYTHONIOENCODING": "utf-8"
+            }
+          }
+        output: |
+          {
+            "id": "b5d0c2a1-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+            "command": "python3 -i",
+            "startTime": "2023-06-15T10:35:45Z",
+            "isRunning": true,
+            "pid": 12345
+          }
+        example: |
+          curl -X POST http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/processes \
+            -H "Content-Type: application/json" \
+            -d '{
+              "command": "python3 -i",
+              "timeout": 300,
+              "environment": {
+                "PYTHONIOENCODING": "utf-8"
+              }
+            }'
+        notes: |
+          - command: (Required) The command to start as a long-running process
+          - timeout: (Optional) Maximum execution time in seconds (0 for no timeout)
+          - environment: (Optional) Additional environment variables for this process
+          - The process will continue running in the background until manually terminated
+      
+      list_processes:
+        endpoint: "GET /sessions/{sessionId}/processes"
+        functionality: "Lists all running processes in the session"
+        dependencies: ["Valid session"]
+        input: "Path parameter: sessionId"
+        output: |
+          {
+            "processes": {
+              "b5d0c2a1-7b5d-4b1a-8f0e-3e9b6a7c8d9e": {
+                "id": "b5d0c2a1-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+                "command": "python3 -i",
+                "startTime": "2023-06-15T10:35:45Z",
+                "isRunning": true,
+                "pid": 12345
+              },
+              "e2f8d1a3-6c4b-9e7a-5d2f-1c3b4a5d6e7f": {
+                "id": "e2f8d1a3-6c4b-9e7a-5d2f-1c3b4a5d6e7f",
+                "command": "node server.js",
+                "startTime": "2023-06-15T10:38:22Z",
+                "isRunning": true,
+                "pid": 12347
+              }
+            },
+            "count": 2
+          }
+        example: "curl -X GET http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/processes"
+      
+      get_process:
+        endpoint: "GET /sessions/{sessionId}/processes/{processId}"
+        functionality: "Get details of a specific process"
+        dependencies: ["Valid session", "Process must exist"]
+        input: "Path parameters: sessionId, processId"
+        output: |
+          {
+            "id": "b5d0c2a1-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+            "command": "python3 -i",
+            "startTime": "2023-06-15T10:35:45Z",
+            "isRunning": true,
+            "pid": 12345
+          }
+        example: |
+          curl -X GET http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/processes/b5d0c2a1-7b5d-4b1a-8f0e-3e9b6a7c8d9e
+        notes: "If the process has completed, exitCode will be included in the response"
+      
+      get_process_output:
+        endpoint: "GET /sessions/{sessionId}/processes/{processId}/output"
+        functionality: "Get the stdout and stderr output from a process"
+        dependencies: ["Valid session", "Process must exist"]
+        input: "Path parameters: sessionId, processId"
+        output: |
+          {
+            "stdout": [
+              "Python 3.9.7 (default, Aug 31 2021, 13:28:12)",
+              "[GCC 11.1.0] on linux",
+              "Type \"help\", \"copyright\", \"credits\" or \"license\" for more information.",
+              ">>>"
+            ],
+            "stderr": []
+          }
+        example: |
+          curl -X GET http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/processes/b5d0c2a1-7b5d-4b1a-8f0e-3e9b6a7c8d9e/output
+        notes: |
+          - Output is captured from process start and stored in memory
+          - The output buffer has a maximum size limit to prevent memory issues
+      
+      send_process_input:
+        endpoint: "POST /sessions/{sessionId}/processes/{processId}/input"
+        functionality: "Send input to the stdin of a running process"
+        dependencies: ["Valid session", "Process must be running and have accessible stdin"]
+        input: |
+          {
+            "input": "print('Hello, World!')"
+          }
+        output: |
+          {
+            "message": "Input sent to process"
+          }
+        example: |
+          curl -X POST http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/processes/b5d0c2a1-7b5d-4b1a-8f0e-3e9b6a7c8d9e/input \
+            -H "Content-Type: application/json" \
+            -d '{
+              "input": "print(\"Hello, World!\")"
+            }'
+        notes: |
+          - A newline character is automatically appended if not present
+          - Ideal for interactive processes like shells and REPLs
+      
+      signal_process:
+        endpoint: "POST /sessions/{sessionId}/processes/{processId}/signal"
+        functionality: "Send a signal (SIGTERM, SIGKILL, etc.) to a running process"
+        dependencies: ["Valid session", "Process must be running"]
+        input: |
+          {
+            "signal": "SIGTERM"
+          }
+        output: |
+          {
+            "message": "Signal sent to process"
+          }
+        example: |
+          curl -X POST http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/processes/b5d0c2a1-7b5d-4b1a-8f0e-3e9b6a7c8d9e/signal \
+            -H "Content-Type: application/json" \
+            -d '{
+              "signal": "SIGTERM"
+            }'
+        notes: |
+          - Supported signals: SIGTERM, SIGKILL, SIGINT, SIGHUP
+          - SIGTERM is the gentlest way to request termination
+          - SIGKILL forces immediate termination but may not allow cleanup
+  
+  environment_variables:
+    description: "Manage environment variables for terminal sessions"
+    dependencies: ["SessionManager service", "EnvService", "Active session"]
+    apis:
+      get_env_vars:
+        endpoint: "GET /sessions/{sessionId}/env"
+        functionality: "Get all environment variables for a session"
+        dependencies: ["Valid session"]
+        input: "Path parameter: sessionId"
+        output: |
+          {
+            "SHELL": "/bin/bash",
+            "NODE_ENV": "development",
+            "DEBUG": "app:*",
+            "PATH": "/usr/local/bin:/usr/bin:/bin"
+          }
+        example: "curl -X GET http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/env"
+        notes: |
+          - Session environment variables are inherited by all commands and processes
+          - The default environment includes at least SHELL
+      
+      set_batch_env_vars:
+        endpoint: "PUT /sessions/{sessionId}/env"
+        functionality: "Set multiple environment variables at once"
+        dependencies: ["Valid session"]
+        input: |
+          {
+            "variables": {
+              "NODE_ENV": "development",
+              "DEBUG": "app:*",
+              "PORT": "3000"
+            }
+          }
+        output: |
+          {
+            "message": "Environment variables set"
+          }
+        example: |
+          curl -X PUT http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/env \
+            -H "Content-Type: application/json" \
+            -d '{
+              "variables": {
+                "NODE_ENV": "development",
+                "DEBUG": "app:*",
+                "PORT": "3000"
+              }
+            }'
+      
+      set_env_var:
+        endpoint: "PUT /sessions/{sessionId}/env/{key}"
+        functionality: "Set a specific environment variable"
+        dependencies: ["Valid session"]
+        input: |
+          {
+            "value": "production"
+          }
+        output: |
+          {
+            "message": "Environment variable set"
+          }
+        example: |
+          curl -X PUT http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/env/NODE_ENV \
+            -H "Content-Type: application/json" \
+            -d '{
+              "value": "production"
+            }'
+      
+      unset_env_var:
+        endpoint: "DELETE /sessions/{sessionId}/env/{key}"
+        functionality: "Remove an environment variable"
+        dependencies: ["Valid session"]
+        input: "Path parameters: sessionId, key"
+        output: |
+          {
+            "message": "Environment variable unset",
+            "key": "DEBUG",
+            "sessionId": "f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+            "success": true
+          }
+        example: "curl -X DELETE http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/env/DEBUG"
+  
+  command_history:
+    description: "Track and search command history for terminal sessions"
+    dependencies: ["HistoryService", "Active session"]
+    apis:
+      get_history:
+        endpoint: "GET /sessions/{sessionId}/history"
+        functionality: "Get command history for a session"
+        dependencies: ["Valid session"]
+        input: "Path parameter: sessionId, Query parameter: limit (optional)"
+        output: |
+          {
+            "history": [
+              {
+                "command": "ls -la",
+                "timestamp": "2023-06-15T10:35:22Z"
+              },
+              {
+                "command": "cd src",
+                "timestamp": "2023-06-15T10:35:30Z"
+              },
+              {
+                "command": "go build",
+                "timestamp": "2023-06-15T10:36:15Z"
+              }
+            ],
+            "count": 3
+          }
+        example: |
+          curl -X GET "http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/history?limit=10"
+        notes: "The limit parameter controls the maximum number of history entries returned"
+      
+      search_history:
+        endpoint: "GET /sessions/{sessionId}/history/search"
+        functionality: "Search command history for specific commands"
+        dependencies: ["Valid session"]
+        input: "Path parameter: sessionId, Query parameter: query (required)"
+        output: |
+          {
+            "history": [
+              {
+                "command": "go build",
+                "timestamp": "2023-06-15T10:36:15Z"
+              },
+              {
+                "command": "go test ./...",
+                "timestamp": "2023-06-15T11:22:45Z"
+              }
+            ],
+            "count": 2,
+            "query": "go"
+          }
+        example: |
+          curl -X GET "http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/history/search?query=go"
+        notes: "The search is case-sensitive and matches substrings within commands"
+      
+      clear_history:
+        endpoint: "DELETE /sessions/{sessionId}/history"
+        functionality: "Clear command history for a session"
+        dependencies: ["Valid session"]
+        input: "Path parameter: sessionId"
+        output: |
+          {
+            "message": "Command history cleared"
+          }
+        example: "curl -X DELETE http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/history"
+  
+  system_information:
+    description: "Get information about the server environment"
+    dependencies: ["SystemHandler"]
+    apis:
+      get_system_info:
+        endpoint: "GET /system/info"
+        functionality: "Get information about the server system"
+        dependencies: []
+        input: "{}"
+        output: |
+          {
+            "hostname": "server-hostname",
+            "os": "linux",
+            "distribution": "Ubuntu 22.04.2 LTS",
+            "architecture": "amd64",
+            "numCPU": 8,
+            "currentTime": "2023-06-15T12:30:45Z",
+            "timezone": "UTC"
+          }
+        example: "curl -X GET http://localhost:8081/system/info"
+      
+      get_available_shells:
+        endpoint: "GET /system/shells"
+        functionality: "Get list of available shells on the system"
+        dependencies: []
+        input: "{}"
+        output: |
+          {
+            "availableShells": {
+              "/bin/bash": true,
+              "/bin/sh": true,
+              "/bin/zsh": true,
+              "/usr/bin/fish": false,
+              "/bin/dash": true
+            },
+            "currentShell": "/bin/bash",
+            "sessionId": "",
+            "shellFoundInSession": false,
+            "systemShell": "/bin/bash"
+          }
+        example: "curl -X GET http://localhost:8081/system/shells"
+        notes: "Returns both available shells (true/false) and the current shell for the system or session"
+      
+      get_session_shells:
+        endpoint: "GET /sessions/{sessionId}/system/shells"
+        functionality: "Get list of available shells with specific session's current shell"
+        dependencies: ["Valid session"]
+        input: "Path parameter: sessionId"
+        output: |
+          {
+            "availableShells": {
+              "/bin/bash": true,
+              "/bin/sh": true,
+              "/bin/zsh": true,
+              "/usr/bin/fish": false,
+              "/bin/dash": true
+            },
+            "currentShell": "/bin/zsh",
+            "sessionId": "f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e",
+            "shellFoundInSession": true,
+            "systemShell": "/bin/bash"
+          }
+        example: "curl -X GET http://localhost:8081/sessions/f7e0c9a2-7b5d-4b1a-8f0e-3e9b6a7c8d9e/system/shells"
+        notes: "Shows both system-wide shells and the specific session's shell configuration"
+
+usage_workflow:
+  description: "Typical workflow for using the API"
+  steps:
+    - "Create a session (POST /sessions)"
+    - "Set working directory (PUT /sessions/{id}/cwd)"
+    - "Set environment variables if needed (PUT /sessions/{id}/env)"
+    - "Execute commands (POST /sessions/{id}/commands) or start processes (POST /sessions/{id}/processes)"
+    - "Interact with running processes by sending input and getting output"
+    - "Review command history as needed"
+    - "Delete the session when done"
+  
+  llm_integration:
+    recommended_flows:
+      command_execution: [
+        "Create session",
+        "Set working directory",
+        "Execute commands and capture output",
+        "Process output and determine next steps"
+      ],
+      
+      interactive_processes: [
+        "Create session",
+        "Set working directory",
+        "Start a long-running process",
+        "Get process output",
+        "Analyze output",
+        "Send input based on output",
+        "Repeat output/input cycle as needed"
+      ],
+      
+      build_and_test: [
+        "Create session", 
+        "Set working directory",
+        "Set appropriate environment variables",
+        "Execute build command",
+        "Execute test command if build succeeds",
+        "Get detailed test results"
+      ],
+      
+      file_and_terminal_integration: [
+        "Create a fileAPI session",
+        "Create a terminalAPI session with the same working directory",
+        "Read/modify files using fileAPI",
+        "Execute commands against those files using terminalAPI",
+        "View command results",
+        "Iterate on file changes and command execution"
+      ]
+
+  integration_examples:
+    fileAPI_coordination:
+      description: "Example workflow for coordinating file modifications with command execution"
+      steps: |
+        1. Create sessions in both APIs:
+           ```bash
+           # Create fileAPI session
+           FILE_SESSION=$(curl -s -X POST http://localhost:8080/sessions | jq -r '.id')
+           
+           # Create terminalAPI session
+           TERM_SESSION=$(curl -s -X POST http://localhost:8081/sessions | jq -r '.id')
+           
+           # Set same working directory for both
+           curl -X PUT http://localhost:8080/sessions/$FILE_SESSION/cwd \
+             -H "Content-Type: application/json" \
+             -d '{"workingDirectory": "/path/to/project"}'
+             
+           curl -X PUT http://localhost:8081/sessions/$TERM_SESSION/cwd \
+             -H "Content-Type: application/json" \
+             -d '{"workingDirectory": "/path/to/project"}'
+           ```
+           
+        2. Modify files with fileAPI:
+           ```bash
+           # Create or update a file
+           curl -X PUT http://localhost:8080/sessions/$FILE_SESSION/files/main.go \
+             -H "Content-Type: application/json" \
+             -d '{
+               "content": "package main\n\nfunc main() {\n\tprintln(\"Hello, World!\")\n}"
+             }'
+           ```
+           
+        3. Compile and run with terminalAPI:
+           ```bash
+           # Compile the file
+           curl -X POST http://localhost:8081/sessions/$TERM_SESSION/commands \
+             -H "Content-Type: application/json" \
+             -d '{
+               "command": "go build main.go",
+               "timeout": 10
+             }'
+             
+           # Run the compiled program
+           curl -X POST http://localhost:8081/sessions/$TERM_SESSION/commands \
+             -H "Content-Type: application/json" \
+             -d '{
+               "command": "./main",
+               "timeout": 5
+             }'
+           ```
+      
+    development_workflow:
+      description: "Extended workflow showing full development cycle integration"
+      steps: |
+        1. Set up development environment
+           - Create sessions in both APIs
+           - Set working directory to project root
+           - Set needed environment variables in terminal session
+           
+        2. Code exploration phase
+           - Use fileAPI to explore existing codebase
+           - Use terminalAPI to run grep/find commands to locate relevant files
+           - Extract code context with fileAPI project endpoints
+           
+        3. Modification phase
+           - Make changes to code files using fileAPI
+           - Use terminalAPI to run tests or formatting tools
+           - Generate diffs using fileAPI
+           
+        4. Build and test phase
+           - Use terminalAPI to run build process
+           - Execute tests and capture output
+           - Parse test output to identify failures
+           
+        5. Debugging phase
+           - Start interactive debugger as long-running process
+           - Use process input/output to step through execution
+           - Make code fixes using fileAPI in parallel
+           
+        6. Deployment phase
+           - Use terminalAPI to run deployment commands
+           - Monitor deployment with terminalAPI processes
+           - Use fileAPI to update configuration files as needed

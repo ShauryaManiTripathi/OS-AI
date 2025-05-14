@@ -178,30 +178,41 @@ def render(api_url: str, session_id: str):
                 if st.button("Send Signal"):
                     if confirm:
                         with st.spinner(f"Sending {signal}..."):
-                            response = client.signal_process(session_id, selected_process_id, signal)
-                        # Display without expander to avoid nesting
-                        display_response(response, use_expander=False)
-                        
-                        # If successful, update process info and refresh
-                        if response["status_code"] == 200:
-                            st.success(f"Signal {signal} sent successfully")
-                            # Refresh process list after a brief delay
-                            time.sleep(1)
-                            response = client.list_processes(session_id)
-                            if response["status_code"] == 200:
-                                if "processes" in response["data"]:
-                                    # Update the process list
-                                    st.session_state.running_processes = []
-                                    for proc_id, proc_info in response["data"]["processes"].items():
-                                        st.session_state.running_processes.append({
-                                            "id": proc_id,
-                                            "command": proc_info.get("command", ""),
-                                            "startTime": proc_info.get("startTime", ""),
-                                            "pid": proc_info.get("pid", 0),
-                                            "isRunning": proc_info.get("isRunning", False),
-                                            "exitCode": proc_info.get("exitCode", None)
-                                        })
-                            st.rerun()
+                            try:
+                                # Add exception handling for signal sending
+                                response = client.signal_process(session_id, selected_process_id, signal)
+                                display_response(response, use_expander=False)
+                                
+                                # If successful, update process info and refresh
+                                if response["status_code"] == 200:
+                                    st.success(f"Signal {signal} sent successfully")
+                                    
+                                    # Wait briefly before checking status to allow the signal to take effect
+                                    time.sleep(1)
+                                    
+                                    # Use exception handling when refreshing process list
+                                    try:
+                                        response = client.list_processes(session_id)
+                                        if response["status_code"] == 200:
+                                            if "processes" in response["data"]:
+                                                # Update the process list
+                                                st.session_state.running_processes = []
+                                                for proc_id, proc_info in response["data"]["processes"].items():
+                                                    st.session_state.running_processes.append({
+                                                        "id": proc_id,
+                                                        "command": proc_info.get("command", ""),
+                                                        "startTime": proc_info.get("startTime", ""),
+                                                        "pid": proc_info.get("pid", 0),
+                                                        "isRunning": proc_info.get("isRunning", False),
+                                                        "exitCode": proc_info.get("exitCode", None)
+                                                    })
+                                    except Exception as e:
+                                        st.error(f"Failed to refresh process list: {str(e)}")
+                                    
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"Error sending signal: {str(e)}")
+                    
                     else:
                         st.error("Please confirm by checking the checkbox before sending the signal")
     

@@ -44,9 +44,17 @@ def render(api_url: str):
     with system_tabs[1]:
         st.subheader("Available Shells")
         
+        # Get current session to use for shell request
+        current_session = st.session_state.get("current_session_id", "")
+        
         if st.button("Get Available Shells"):
             with st.spinner("Fetching shell information..."):
-                response = client.get_available_shells()
+                # If we have a current session, use the session-specific endpoint
+                if current_session:
+                    response = client.get_session_shells(current_session)
+                else:
+                    response = client.get_available_shells()
+                    
             display_response(response)
             
             # Display shells in a more readable format
@@ -56,19 +64,33 @@ def render(api_url: str):
                 st.subheader("Current Shell")
                 st.info(data.get("currentShell", "Not set"))
                 
-                st.subheader("Available Shells")
-                shells = data.get("availableShells", {})
+                # Show debug info
+                if "sessionId" in data:
+                    if data["sessionId"]:
+                        st.success(f"Using session ID: {data['sessionId']}")
+                    else:
+                        st.warning("No session ID provided - using system defaults")
                 
-                if shells:
-                    # Create a list of shells with availability status
-                    shell_list = []
-                    for shell, available in shells.items():
-                        shell_list.append({
-                            "Shell": shell,
-                            "Available": "Yes" if available else "No"
-                        })
+                # Display shells in a more readable format
+                if response["status_code"] == 200:
+                    data = response["data"]
                     
-                    # Display as dataframe
-                    st.dataframe(shell_list)
-                else:
-                    st.info("No shell information available")
+                    st.subheader("Current Shell")
+                    st.info(data.get("currentShell", "Not set"))
+                    
+                    st.subheader("Available Shells")
+                    shells = data.get("availableShells", {})
+                    
+                    if shells:
+                        # Create a list of shells with availability status
+                        shell_list = []
+                        for shell, available in shells.items():
+                            shell_list.append({
+                                "Shell": shell,
+                                "Available": "Yes" if available else "No"
+                            })
+                        
+                        # Display as dataframe
+                        st.dataframe(shell_list)
+                    else:
+                        st.info("No shell information available")

@@ -19,7 +19,7 @@ func SetupRoutes(e *echo.Echo, sm *services.SessionManager) {
 	processHandler := handlers.NewProcessHandler(ps)
 	envHandler := handlers.NewEnvHandler(es)
 	historyHandler := handlers.NewHistoryHandler(hs)
-	systemHandler := handlers.NewSystemHandler()
+	systemHandler := handlers.NewSystemHandlerWithSessionManager(sm)  // Use the new constructor
 	
 	// Session routes
 	e.POST("/sessions", sessionHandler.CreateSession)
@@ -54,4 +54,7 @@ func SetupRoutes(e *echo.Echo, sm *services.SessionManager) {
 	// System routes
 	e.GET("/system/info", systemHandler.GetSystemInfo)
 	e.GET("/system/shells", systemHandler.GetAvailableShells)
+	
+	// Make sure the session-specific endpoint for shells is registered before other routes
+	e.GET("/sessions/:sessionId/system/shells", systemHandler.GetAvailableShells)
 }

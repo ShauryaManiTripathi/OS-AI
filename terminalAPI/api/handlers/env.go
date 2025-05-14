@@ -64,14 +64,20 @@ func (h *EnvHandler) UnsetEnvVar(c echo.Context) error {
 	sessionID := c.Param("sessionId")
 	key := c.Param("key")
 	
-	if err := h.envService.UnsetEnvVar(sessionID, key); err != nil {
+	// Simplified approach - just unset without additional checks
+	err := h.envService.UnsetEnvVar(sessionID, key)
+	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})
 	}
 	
-	return c.JSON(http.StatusOK, map[string]string{
+	// Always return success - no checking if it actually existed
+	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "Environment variable unset",
+		"key": key,
+		"sessionId": sessionID,
+		"success": true,
 	})
 }
 

@@ -3,12 +3,12 @@ package services
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -73,16 +73,10 @@ func (ps *ProcessService) StartProcess(sessionID string, request *CommandRequest
 		return nil, errors.New("working directory not set for session")
 	}
 	
-	// Split the command into parts
-	args := parseCommand(request.Command)
-	if len(args) == 0 {
-		return nil, errors.New("empty command")
-	}
-	
 	// Record in history
 	ps.historyService.AddToHistory(sessionID, request.Command)
 	
-	// Create command
+	// Create command context
 	var ctx context.Context
 	var cancel context.CancelFunc
 	
@@ -92,11 +86,23 @@ func (ps *ProcessService) StartProcess(sessionID string, request *CommandRequest
 		ctx, cancel = context.WithCancel(context.Background())
 	}
 	
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = session.WorkingDir
+	// Determine which shell to use based on session environment
+	shellPath := "/bin/bash"  // Default shell
+	if shell, exists := session.EnvVars["SHELL"]; exists && shell != "" {
+		// Verify the shell exists and is executable
+		if _, err := os.Stat(shell); err == nil {
+			shellPath = shell
+		} else {
+			// Log warning but continue with default shell
+			fmt.Printf("[WARNING] Session %s: Shell %s not found, using %s instead\n", 
+				sessionID, shell, shellPath)
+		}
+	}
 	
-	// Set environment variables
-	env := []string{}
+	// Start with system environment
+	env := os.Environ()
+	
+	// Add session environment variables
 	for k, v := range session.EnvVars {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
@@ -106,9 +112,10 @@ func (ps *ProcessService) StartProcess(sessionID string, request *CommandRequest
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 	
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	// Create command
+	cmd := exec.CommandContext(ctx, shellPath, "-c", request.Command)
+	cmd.Dir = session.WorkingDir
+	cmd.Env = env
 	
 	// Get pipes for stdin, stdout, stderr
 	stdinPipe, err := cmd.StdinPipe()
@@ -194,9 +201,12 @@ func (ps *ProcessService) StartProcess(sessionID string, request *CommandRequest
 		fmt.Printf("[TERMINAL] Session %s: Process '%s' (ID: %s) completed with exit code %d\n", 
 			sessionID, request.Command, processID, process.ExitCode)
 			
-		// Close output channels
-		close(outputBuffer.StdoutChan)
-		close(outputBuffer.StderrChan)
+			// Give some time for any remaining output to be processed before closing channels
+			time.Sleep(100 * time.Millisecond)
+			
+			// Close output channels
+			close(outputBuffer.StdoutChan)
+			close(outputBuffer.StderrChan)
 	}()
 	
 	ps.sessionManager.LogActivity(sessionID, fmt.Sprintf("Started process: %s (PID: %d, ID: %s)", 
@@ -218,11 +228,12 @@ func (ps *ProcessService) collectOutput(pipe io.ReadCloser, channel chan string,
 	for scanner.Scan() {
 		line := scanner.Text()
 		
-		// Send line to channel for real-time consumers
+		// Send line to channel for real-time consumers - safely handle closed channel
 		select {
 		case channel <- line:
+			// Successfully sent
 		default:
-			// Channel buffer is full, drop the line
+			// Channel is either full or closed, just continue without sending
 		}
 		
 		// Add to buffer for later retrieval

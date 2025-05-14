@@ -295,32 +295,39 @@ func (fs *FileService) SearchInFiles(sessionID string, dir string, pattern strin
 	
 	err = filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			return nil // Skip files with errors, don't abort the entire walk
 		}
 		
-		// Skip directories
+		// Handle directories based on recursive flag
 		if info.IsDir() {
-			// If not recursive and not the root dir, skip
-			if (!recursive && path != fullPath) {
+			// Skip subdirectories if not recursive and we're not at the root directory
+			if !recursive && path != fullPath {
 				return filepath.SkipDir
 			}
-			return nil
+			return nil // Continue to next entry
 		}
 		
-		// Get relative path
+		// Get relative path from the search root directory
 		relPath, err := filepath.Rel(fullPath, path)
 		if err != nil {
-			return err
+			return nil // Skip files with path issues
 		}
 		
-		// Read and search in file
+		// First check if the filename matches the pattern - this addresses the b.txt issue
+		if strings.Contains(strings.ToLower(info.Name()), strings.ToLower(pattern)) {
+			// File name matches, add an entry with a note that the name matched
+			results[relPath] = []string{"[Filename matches search pattern]"}
+			return nil // No need to check content if filename already matches
+		}
+		
+		// If filename doesn't match, check the content
 		content, err := ioutil.ReadFile(path)
 		if err != nil {
 			return nil // Skip files we can't read
 		}
 		
 		if strings.Contains(string(content), pattern) {
-			// Found match - add lines containing the pattern
+			// Found match in content - add lines containing the pattern
 			lines := strings.Split(string(content), "\n")
 			var matches []string
 			
@@ -330,19 +337,21 @@ func (fs *FileService) SearchInFiles(sessionID string, dir string, pattern strin
 				}
 			}
 			
-			// Store in relative path
+			// Store matches against the relative path
 			results[relPath] = matches
 		}
 		
 		return nil
 	})
 	
-	fs.sessionManager.LogActivity(sessionID, fmt.Sprintf("Searched for pattern '%s' in %s", pattern, dir))
-	fmt.Printf("[TERMINAL] Session %s: Searched for pattern '%s' in %s\n", sessionID, pattern, dir)
-	
-	if err != nil {
+	// Only return error if it's critical - not finding any matches is not an error
+	if err != nil && err != filepath.SkipDir {
 		return nil, err
 	}
+	
+	fs.sessionManager.LogActivity(sessionID, fmt.Sprintf("Searched for pattern '%s' in %s, found %d matching files", pattern, dir, len(results)))
+	fmt.Printf("[TERMINAL] Session %s: Searched for pattern '%s' in %s, found %d matching files\n", 
+		sessionID, pattern, dir, len(results))
 	
 	return results, nil
 }

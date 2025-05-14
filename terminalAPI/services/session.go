@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ type Session struct {
 	ActivityLog     []string          `json:"activityLog,omitempty"`
 	EnvVars         map[string]string `json:"envVars"`
 	RunningProcesses map[string]*Process `json:"-"` // Don't expose in JSON
+	Lock            sync.Mutex        `json:"-"`
 }
 
 type SessionManager struct {
@@ -140,7 +142,7 @@ func (sm *SessionManager) SetWorkingDirectory(id string, dir string) error {
 	defer sm.mutex.Unlock()
 	
 	session, exists := sm.sessions[id]
-	if !exists || !session.IsActive {
+	if (!exists || !session.IsActive) {
 		return errors.New("session not found or inactive")
 	}
 	
@@ -167,22 +169,27 @@ func (sm *SessionManager) SetWorkingDirectory(id string, dir string) error {
 }
 
 func (sm *SessionManager) LogActivity(id string, activity string) error {
-	sm.mutex.Lock()
-	defer sm.mutex.Unlock()
-	
+	// Use separate locks to avoid deadlocks
+	sm.mutex.RLock()
 	session, exists := sm.sessions[id]
+	sm.mutex.RUnlock()
+	
 	if !exists || !session.IsActive {
 		return errors.New("session not found or inactive")
 	}
 	
 	now := time.Now()
 	logEntry := fmt.Sprintf("%s: %s", now.Format(time.RFC3339), activity)
+	
+	// Lock only while updating activity log
+	session.Lock.Lock()
 	session.ActivityLog = append(session.ActivityLog, logEntry)
 	
 	// Maintain a reasonable log size
 	if len(session.ActivityLog) > 100 {
 		session.ActivityLog = session.ActivityLog[len(session.ActivityLog)-100:]
 	}
+	session.Lock.Unlock()
 	
 	return nil
 }
@@ -321,4 +328,34 @@ func (sm *SessionManager) ListProcesses(sessionID string) (map[string]*ProcessIn
 	}
 	
 	return processInfos, nil
+}
+
+// Helper function to validate shell paths
+func isValidShellPath(path string) bool {
+    // Basic path validation
+    if path == "" || !strings.HasPrefix(path, "/") {
+        return false
+    }
+    
+    // Check if common valid shells
+    commonShells := []string{
+        "/bin/bash", "/bin/sh", "/bin/zsh", 
+        "/usr/bin/bash", "/usr/bin/zsh", 
+        "/usr/local/bin/bash", "/usr/local/bin/zsh",
+    }
+    
+    for _, shell := range commonShells {
+        if path == shell {
+            return true
+        }
+    }
+    
+    // For other paths, check if they exist and are executable
+    info, err := os.Stat(path)
+    if err != nil {
+        return false
+    }
+    
+    // Check if it's executable
+    return info.Mode()&0111 != 0
 }
